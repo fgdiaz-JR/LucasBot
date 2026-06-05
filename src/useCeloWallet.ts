@@ -13,6 +13,7 @@ export interface WalletState {
   celoBalance: number;  // Balance of CELO (for gas)
   isConnecting: boolean;
   netName: "Celo Mainnet" | "Celo Alfajores" | "Offline";
+  feeCurrency: "COPm" | "cUSD" | "CELO";
 }
 
 export function useCeloWallet() {
@@ -23,7 +24,8 @@ export function useCeloWallet() {
     cUSDBalance: 152000, // 152,000 COPm default starting balance for demo
     celoBalance: 0.15, // CELO balance (1 CELO = normal gas fee of 0.001 Celo)
     isConnecting: false,
-    netName: "Celo Mainnet"
+    netName: "Celo Mainnet",
+    feeCurrency: "COPm"
   });
 
   // Check for MiniPay / Custom Ethereum Injectors
@@ -104,6 +106,10 @@ export function useCeloWallet() {
     }));
   }, []);
 
+  const changeFeeCurrency = useCallback((currency: "COPm" | "cUSD" | "CELO") => {
+    setWallet(prev => ({ ...prev, feeCurrency: currency }));
+  }, []);
+
   return {
     ...wallet,
     connectWallet,
@@ -111,6 +117,7 @@ export function useCeloWallet() {
     setBalances,
     useGas,
     topupGas,
-    deductBalance
+    deductBalance,
+    changeFeeCurrency
   };
 }

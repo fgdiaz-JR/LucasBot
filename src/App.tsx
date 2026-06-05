@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { FacturaProvider, useFactura } from "./providers";
 import { InvoiceStatus, Invoice, ChatMessage } from "./types";
 import { FinanceCharts } from "./components/FinanceCharts";
+import { PaymentQRCode } from "./components/PaymentQRCode";
 import {
   Bot,
   User,
@@ -38,6 +39,7 @@ import {
   Mic,
   MicOff,
   Plus,
+  Fingerprint,
   TrendingUp,
   TrendingDown,
   ArrowUpRight,
@@ -76,6 +78,61 @@ function MainAppContent() {
   // Manual transaction forms states
   const [showManualCreate, setShowManualCreate] = useState(false);
   const [showManualPay, setShowManualPay] = useState(false);
+
+  // BIP-712 Cryptographic signature request state
+  const [signatureRequest, setSignatureRequest] = useState<{
+    id?: string;
+    type: "create" | "pay";
+    client: string;
+    amount: number;
+    desc: string;
+    msgId?: string;
+    directPay?: boolean;
+    onSuccess: (txHash: string) => void;
+  } | null>(null);
+
+  // Solidity Smart Contract Events state
+  const [blockchainEvents, setBlockchainEvents] = useState<Array<{
+    id: string;
+    blockNumber: number;
+    timestamp: string;
+    eventName: "InvoiceCreated" | "InvoicePaid" | "FeePaid";
+    txHash: string;
+    args: { [key: string]: any };
+  }>>([
+    {
+      id: "evt-01",
+      blockNumber: 18451203,
+      timestamp: new Date(Date.now() - 3600000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      eventName: "InvoicePaid",
+      txHash: "0x6f91d8ceab83c189b88cefbb0c0e5a9ee075e8d9b1c7dc41c2c3116bc37ef89a",
+      args: { id: "inv-7512", payer: "Restaurante El Portal", amount: "180,000 COPm", fee: "0.00 COPm (Gasless)" }
+    },
+    {
+      id: "evt-02",
+      blockNumber: 18451199,
+      timestamp: new Date(Date.now() - 3700000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      eventName: "InvoiceCreated",
+      txHash: "0x6f91d8ceab83c189b88cefbb0c0e5a9ee075e8d9b1c7dc41c2c3116bc37ef89a",
+      args: { id: "inv-7512", recipient: "0x7cD2...C3a1", amount: "180,000 COPm" }
+    },
+    {
+      id: "evt-03",
+      blockNumber: 18450140,
+      timestamp: new Date(Date.now() - 7200000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      eventName: "InvoicePaid",
+      txHash: "0x4e61b8ceab83c189b88cefbb0c0e5a9ee075e8d9b1c7dc41c2c3116bc37ef123",
+      args: { id: "inv-3021", payer: "0x7cD2...C3a1", amount: "120,000 COPm", fee: "0.005 CELO" }
+    },
+    {
+      id: "evt-04",
+      blockNumber: 18449552,
+      timestamp: new Date(Date.now() - 10800000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      eventName: "InvoicePaid",
+      txHash: "0x8fa3f8ceab83c189b88cefbb0c0e5a9ee075e8d9b1c7dc41c2c3116bc37ef456",
+      args: { id: "inv-2190", payer: "0x7cD2...C3a1", amount: "155,000 COPm", fee: "0.0001 cUSD" }
+    },
+  ]);
   const [manualClient, setManualClient] = useState("");
   const [manualAmount, setManualAmount] = useState("");
   const [manualDesc, setManualDesc] = useState("");
@@ -267,53 +324,77 @@ function MainAppContent() {
 
   // AI Invoice Generation Action (Cobrar)
   const handleConfirmInvoiceCreation = (payload: any, msgId: string) => {
-    const newId = `inv-${Math.floor(Math.random() * 9000) + 1000}`;
-    const today = new Date().toISOString().split("T")[0];
-    const due = new Date();
-    due.setDate(due.getDate() + 15);
-    const dueDateStr = due.toISOString().split("T")[0];
+    setSignatureRequest({
+      type: "create",
+      client: payload.client || "Cliente General",
+      amount: payload.amount || 150000,
+      desc: payload.desc || "Honorarios profesionales prestados",
+      msgId,
+      onSuccess: (txHash) => {
+        const newId = `inv-${Math.floor(Math.random() * 9000) + 1000}`;
+        const today = new Date().toISOString().split("T")[0];
+        const due = new Date();
+        due.setDate(due.getDate() + 15);
+        const dueDateStr = due.toISOString().split("T")[0];
 
-    const newInv: Invoice = {
-      id: newId,
-      clientName: payload.client || "Cliente General",
-      amountCOPm: payload.amount || 150000,
-      amountUSD: Number(((payload.amount || 150000) / 4000).toFixed(2)),
-      description: payload.desc || "Honorarios profesionales prestados",
-      issueDate: today,
-      dueDate: dueDateStr,
-      status: InvoiceStatus.PENDIENTE,
-      creatorAddress: wallet.address || "0x7cD2...C3a1",
-      type: "ingreso"
-    };
-
-    setInvoices((prev) => [newInv, ...prev]);
-    playChime("success");
-    speakText(`Factura de cobro ${newId} emitida con éxito`);
-
-    // Push bot confirmation of success in chat
-    addMessage(
-      "bot",
-      `¡Excelente! He emitido la factura **${newId}** on-chain con éxito. Compartido enlace de cobro de un solo toque para tu cliente:\n\n*Concepto*: ${newInv.description}\n*Monto*: **$${newInv.amountCOPm.toLocaleString("es-CO")} COPm**`,
-      {
-        type: "receipt",
-        payload: {
+        const newInv: Invoice = {
           id: newId,
-          client: newInv.clientName,
-          amount: newInv.amountCOPm,
-          desc: newInv.description,
-          txHash: "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(""),
-        },
-      }
-    );
+          clientName: payload.client || "Cliente General",
+          amountCOPm: payload.amount || 150000,
+          amountUSD: Number(((payload.amount || 150000) / 4000).toFixed(2)),
+          description: payload.desc || "Honorarios profesionales prestados",
+          issueDate: today,
+          dueDate: dueDateStr,
+          status: InvoiceStatus.PENDIENTE,
+          creatorAddress: wallet.address || "0x7cD2...C3a1",
+          type: "ingreso"
+        };
 
-    // Close options of this widget after emitting
-    setOpenWidgets((prev) => ({ ...prev, [msgId]: false }));
+        setInvoices((prev) => [newInv, ...prev]);
+
+        // Add Solidity Event Log
+        const newBlock = 18451203 + blockchainEvents.length + 1;
+        setBlockchainEvents(prev => [
+          {
+            id: `evt-${Date.now()}`,
+            blockNumber: newBlock,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            eventName: "InvoiceCreated",
+            txHash,
+            args: { id: newId, recipient: wallet.address || "0x7cD2...C3a1", amount: `${newInv.amountCOPm.toLocaleString()} COPm` }
+          },
+          ...prev
+        ]);
+
+        playChime("success");
+        speakText(`Factura de cobro ${newId} emitida con éxito`);
+
+        // Push bot confirmation of success in chat
+        addMessage(
+          "bot",
+          `¡Excelente! He emitido la factura **${newId}** on-chain con éxito. Compartido enlace de cobro de un solo toque para tu cliente:\n\n*Concepto*: ${newInv.description}\n*Monto*: **$${newInv.amountCOPm.toLocaleString("es-CO")} COPm**`,
+          {
+            type: "receipt",
+            payload: {
+              id: newId,
+              client: newInv.clientName,
+              amount: newInv.amountCOPm,
+              desc: newInv.description,
+              txHash,
+            },
+          }
+        );
+
+        // Close options of this widget after emitting
+        setOpenWidgets((prev) => ({ ...prev, [msgId]: false }));
+      }
+    });
   };
 
   // Payment Settlement logic with Zero Gas and Balance triggers
   const handlePayment = async (inv: any, msgId: string) => {
     // Check Gas status (celoBalance)
-    if (wallet.celoBalance <= 0) {
+    if (wallet.celoBalance <= 0 && wallet.feeCurrency === "CELO") {
       playChime("error");
       speakText("Error: No tienes saldo de gas CELO");
       window.open("https://link.minipay.xyz/add_cash", "_blank");
@@ -321,61 +402,154 @@ function MainAppContent() {
     }
 
     const payloadId = inv.id || inv.payload?.id;
-    // If the invoice does not exist in our ledger (direct raw payment via chatbot), we dynamically create a paid expense
     const exists = invoices.some(i => i.id === payloadId);
-    
-    let completed = false;
-    if (exists) {
-      completed = await payInvoiceSimulated(payloadId);
-    } else {
-      // Direct raw transfer / payment
-      setIsProcessingAction(true);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      const payAmount = inv.amountCOPm || inv.payload?.amount || 50000;
-      wallet.deductBalance(payAmount);
-      wallet.useGas(0.005);
-      
-      const newId = payloadId || `inv-${Math.floor(Math.random() * 9000) + 1000}`;
-      const today = new Date().toISOString().split("T")[0];
-      const newExpense: Invoice = {
-        id: newId,
-        clientName: inv.clientName || inv.payload?.client || "Destinatario",
-        amountCOPm: payAmount,
-        amountUSD: Number((payAmount / 4000).toFixed(2)),
-        description: inv.description || inv.payload?.desc || "Pago directo realizado",
-        issueDate: today,
-        dueDate: today,
-        status: InvoiceStatus.PAGADO,
-        creatorAddress: wallet.address || "0x7cD2...C3a1",
-        txHash: "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(""),
-        type: "egreso"
-      };
-      setInvoices(prev => [newExpense, ...prev]);
-      setIsProcessingAction(false);
-      completed = true;
-    }
+    const payAmount = inv.amountCOPm || inv.payload?.amount || 50000;
+    const clientName = inv.clientName || inv.payload?.client || "Destinatario";
+    const paymentDesc = inv.description || inv.payload?.desc || "Pago directo realizado";
 
-    if (completed) {
-      playChime("success");
-      speakText("Pago liquidado con éxito en la blockchain celo");
-      
-      addMessage(
-        "bot",
-        `¡Pago liquidado de forma segura! ✅ El monto ha sido saldada on-chain. Los fondos han sido transferidos al destinatario proveído.`,
-        {
-          type: "receipt",
-          payload: {
-            id: payloadId || "gasto",
-            client: inv.clientName || inv.payload?.client || "Destinatario",
-            amount: inv.amountCOPm || inv.payload?.amount,
-            txHash: "0x7f23be1abf56ea458c9b88cefbb0c0e5a9ee075e8d9b1c7dc41c2c3116bc37ef89a",
-          },
+    setSignatureRequest({
+      id: payloadId,
+      type: "pay",
+      client: clientName,
+      amount: payAmount,
+      desc: paymentDesc,
+      msgId,
+      directPay: !exists,
+      onSuccess: async (txHash) => {
+        setIsProcessingAction(true);
+        wallet.deductBalance(payAmount);
+        
+        let gasSpent = 0.005;
+        let feeString = `${gasSpent} CELO`;
+        if (wallet.feeCurrency === "COPm") {
+          gasSpent = 0;
+          feeString = "0.00 COPm (Gasless)";
+        } else if (wallet.feeCurrency === "cUSD") {
+          gasSpent = 0.0001;
+          feeString = "0.0001 cUSD (~0.4 COPm)";
         }
-      );
-      setOpenWidgets((prev) => ({ ...prev, [msgId]: false }));
-    } else {
-      playChime("error");
-    }
+        
+        wallet.useGas(gasSpent);
+
+        if (exists) {
+          setInvoices(prev => prev.map(item => {
+            if (item.id === payloadId) {
+              return {
+                ...item,
+                status: InvoiceStatus.PAGADO,
+                txHash
+              };
+            }
+            return item;
+          }));
+        } else {
+          const today = new Date().toISOString().split("T")[0];
+          const newExpense: Invoice = {
+            id: payloadId || `inv-${Math.floor(Math.random() * 9000) + 1000}`,
+            clientName,
+            amountCOPm: payAmount,
+            amountUSD: Number((payAmount / 4000).toFixed(2)),
+            description: paymentDesc,
+            issueDate: today,
+            dueDate: today,
+            status: InvoiceStatus.PAGADO,
+            creatorAddress: wallet.address || "0x7cD2...C3a1",
+            txHash,
+            type: "egreso"
+          };
+          setInvoices(prev => [newExpense, ...prev]);
+        }
+
+        // Add solidity contract event
+        const newBlock = 18451203 + blockchainEvents.length + 1;
+        setBlockchainEvents(prev => [
+          {
+            id: `evt-${Date.now()}`,
+            blockNumber: newBlock,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            eventName: "InvoicePaid",
+            txHash,
+            args: { id: payloadId || "gasto", payer: wallet.address || "0x7cD2...C3a1", amount: `${payAmount.toLocaleString()} COPm`, fee: feeString }
+          },
+          ...prev
+        ]);
+
+        setIsProcessingAction(false);
+        playChime("success");
+        speakText("Pago liquidado con éxito en la blockchain celo");
+
+        addMessage(
+          "bot",
+          `¡Pago liquidado de forma segura! ✅ El monto de **$${payAmount.toLocaleString("es-CO")} COPm** ha sido saldada on-chain. Los fondos han sido transferidos al destinatario proveído.`,
+          {
+            type: "receipt",
+            payload: {
+              id: payloadId || "gasto",
+              client: clientName,
+              amount: payAmount,
+              txHash,
+            },
+          }
+        );
+        setOpenWidgets((prev) => ({ ...prev, [msgId]: false }));
+      }
+    });
+  };
+
+  // Helper inside ledger for direct signing of row payouts
+  const handleTablePay = (item: Invoice) => {
+    setSignatureRequest({
+      id: item.id,
+      type: "pay",
+      client: item.clientName,
+      amount: item.amountCOPm,
+      desc: item.description,
+      onSuccess: async (txHash) => {
+        setIsProcessingAction(true);
+        wallet.deductBalance(item.amountCOPm);
+        
+        let gasSpent = 0.005;
+        let feeString = `${gasSpent} CELO`;
+        if (wallet.feeCurrency === "COPm") {
+          gasSpent = 0;
+          feeString = "0.00 COPm (Gasless)";
+        } else if (wallet.feeCurrency === "cUSD") {
+          gasSpent = 0.0001;
+          feeString = "0.0001 cUSD (~0.4 COPm)";
+        }
+        
+        wallet.useGas(gasSpent);
+
+        setInvoices(prev => prev.map(inv => {
+          if (inv.id === item.id) {
+            return {
+              ...inv,
+              status: InvoiceStatus.PAGADO,
+              txHash
+            };
+          }
+          return inv;
+        }));
+
+        // Add solidity contract event
+        const newBlock = 18451203 + blockchainEvents.length + 1;
+        setBlockchainEvents(prev => [
+          {
+            id: `evt-${Date.now()}`,
+            blockNumber: newBlock,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            eventName: "InvoicePaid",
+            txHash,
+            args: { id: item.id, payer: wallet.address || "0x7cD2...C3a1", amount: `${item.amountCOPm.toLocaleString()} COPm`, fee: feeString }
+          },
+          ...prev
+        ]);
+
+        setIsProcessingAction(false);
+        playChime("success");
+        speakText("Pago liquidado con éxito en la blockchain celo");
+      }
+    });
   };
 
   // Financial analytics derived dynamically for Bento grid and charts
@@ -414,32 +588,55 @@ function MainAppContent() {
     const amountVal = parseInt(manualAmount, 10);
     if (!manualClient.trim() || isNaN(amountVal) || amountVal <= 0) return;
 
-    const newId = `inv-${Math.floor(Math.random() * 9000) + 1000}`;
-    const today = new Date().toISOString().split("T")[0];
-    const due = new Date();
-    due.setDate(due.getDate() + 15);
+    setSignatureRequest({
+      type: "create",
+      client: manualClient,
+      amount: amountVal,
+      desc: manualDesc || "Concepto General",
+      onSuccess: (txHash) => {
+        const newId = `inv-${Math.floor(Math.random() * 9000) + 1000}`;
+        const today = new Date().toISOString().split("T")[0];
+        const due = new Date();
+        due.setDate(due.getDate() + 15);
 
-    const newInv: Invoice = {
-      id: newId,
-      clientName: manualClient,
-      amountCOPm: amountVal,
-      amountUSD: Number((amountVal / 4000).toFixed(2)),
-      description: manualDesc || "Concepto General",
-      issueDate: today,
-      dueDate: due.toISOString().split("T")[0],
-      status: InvoiceStatus.PENDIENTE,
-      creatorAddress: wallet.address || "0x7cD2...C3a1",
-      type: "ingreso"
-    };
+        const newInv: Invoice = {
+          id: newId,
+          clientName: manualClient,
+          amountCOPm: amountVal,
+          amountUSD: Number((amountVal / 4000).toFixed(2)),
+          description: manualDesc || "Concepto General",
+          issueDate: today,
+          dueDate: due.toISOString().split("T")[0],
+          status: InvoiceStatus.PENDIENTE,
+          creatorAddress: wallet.address || "0x7cD2...C3a1",
+          type: "ingreso"
+        };
 
-    setInvoices((prev) => [newInv, ...prev]);
-    playChime("success");
-    speakText(`Cobro manual ${newId} generado`);
+        setInvoices((prev) => [newInv, ...prev]);
 
-    setManualClient("");
-    setManualAmount("");
-    setManualDesc("");
-    setShowManualCreate(false);
+        // Add Solidity Event Log
+        const newBlock = 18451203 + blockchainEvents.length + 1;
+        setBlockchainEvents(prev => [
+          {
+            id: `evt-${Date.now()}`,
+            blockNumber: newBlock,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            eventName: "InvoiceCreated",
+            txHash,
+            args: { id: newId, recipient: wallet.address || "0x7cD2...C3a1", amount: `${amountVal.toLocaleString()} COPm` }
+          },
+          ...prev
+        ]);
+
+        playChime("success");
+        speakText(`Cobro manual ${newId} generado`);
+
+        setManualClient("");
+        setManualAmount("");
+        setManualDesc("");
+        setShowManualCreate(false);
+      }
+    });
   };
 
   const handleManualPaySubmit = async (e: React.FormEvent) => {
@@ -447,45 +644,123 @@ function MainAppContent() {
     const amountVal = parseInt(manualAmount, 10);
     if (!manualClient.trim() || isNaN(amountVal) || amountVal <= 0) return;
 
-    if (wallet.celoBalance <= 0) {
+    if (wallet.celoBalance <= 0 && wallet.feeCurrency === "CELO") {
       playChime("error");
       speakText("Error: No tienes saldo de gas CELO");
       window.open("https://link.minipay.xyz/add_cash", "_blank");
       return;
     }
 
-    setIsProcessingAction(true);
-    await new Promise(resolve => setTimeout(resolve, 1400));
+    setSignatureRequest({
+      type: "pay",
+      client: manualClient,
+      amount: amountVal,
+      desc: manualDesc || "Pago Directo",
+      directPay: true,
+      onSuccess: async (txHash) => {
+        setIsProcessingAction(true);
+        const newId = `inv-${Math.floor(Math.random() * 9000) + 1000}`;
+        const today = new Date().toISOString().split("T")[0];
 
-    const newId = `inv-${Math.floor(Math.random() * 9000) + 1000}`;
-    const today = new Date().toISOString().split("T")[0];
+        const newInv: Invoice = {
+          id: newId,
+          clientName: manualClient,
+          amountCOPm: amountVal,
+          amountUSD: Number((amountVal / 4000).toFixed(2)),
+          description: manualDesc || "Pago Directo",
+          issueDate: today,
+          dueDate: today,
+          status: InvoiceStatus.PAGADO,
+          creatorAddress: wallet.address || "0x7cD2...C3a1",
+          txHash,
+          type: "egreso"
+        };
 
-    const newInv: Invoice = {
-      id: newId,
-      clientName: manualClient,
-      amountCOPm: amountVal,
-      amountUSD: Number((amountVal / 4000).toFixed(2)),
-      description: manualDesc || "Pago Directo",
-      issueDate: today,
-      dueDate: today,
-      status: InvoiceStatus.PAGADO,
-      creatorAddress: wallet.address || "0x7cD2...C3a1",
-      txHash: "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(""),
-      type: "egreso"
-    };
+        wallet.deductBalance(amountVal);
+        
+        let gasSpent = 0.005;
+        let feeString = `${gasSpent} CELO`;
+        if (wallet.feeCurrency === "COPm") {
+          gasSpent = 0;
+          feeString = "0.00 COPm (Gasless)";
+        } else if (wallet.feeCurrency === "cUSD") {
+          gasSpent = 0.0001;
+          feeString = "0.0001 cUSD (~0.4 COPm)";
+        }
+        
+        wallet.useGas(gasSpent);
+        setInvoices((prev) => [newInv, ...prev]);
 
-    wallet.deductBalance(amountVal);
-    wallet.useGas(0.005);
-    setInvoices((prev) => [newInv, ...prev]);
-    setIsProcessingAction(false);
+        // Add solidity contract event
+        const newBlock = 18451203 + blockchainEvents.length + 1;
+        setBlockchainEvents(prev => [
+          {
+            id: `evt-${Date.now()}`,
+            blockNumber: newBlock,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            eventName: "InvoicePaid",
+            txHash,
+            args: { id: newId, payer: wallet.address || "0x7cD2...C3a1", amount: `${amountVal.toLocaleString()} COPm`, fee: feeString }
+          },
+          ...prev
+        ]);
 
-    playChime("success");
-    speakText("Pago directo procesado con éxito on chain");
+        setIsProcessingAction(false);
+        playChime("success");
+        speakText("Pago directo procesado con éxito on chain");
 
-    setManualClient("");
-    setManualAmount("");
-    setManualDesc("");
-    setShowManualPay(false);
+        setManualClient("");
+        setManualAmount("");
+        setManualDesc("");
+        setShowManualPay(false);
+      }
+    });
+  };
+
+  const renderSolidityEventLedger = () => {
+    return (
+      <div className="bg-[#080d1e] border border-white/5 p-5 rounded-[28px] space-y-3.5 relative overflow-hidden">
+        {/* Decorative glowing network status indicator */}
+        <div className="absolute top-0 right-0 bg-[#10b981]/15 border-b border-l border-emerald-500/20 px-3 py-1 rounded-bl-xl text-[8px] font-mono font-bold text-emerald-400 animate-pulse flex items-center gap-1">
+          <span className="w-1.5 h-1.5 bg-[#10b981] rounded-full"></span>
+          CELO RPC LIVE
+        </div>
+
+        <div className="space-y-0.5">
+          <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-wider font-mono">Blockchain Event Ledger</h4>
+          <p className="text-[9px] text-slate-500 font-sans">Logs de ejecución de contratos inteligentes Celo en tiempo real</p>
+        </div>
+
+        <div className="space-y-2.5 max-h-[195px] overflow-y-auto pr-1">
+          {blockchainEvents.map((evt) => (
+            <div key={evt.id} className="bg-slate-950/60 border border-white/5 p-2.5 rounded-xl space-y-1.5 transition hover:bg-slate-950/90 font-mono text-[9px]">
+              <div className="flex justify-between items-center text-[9px] text-slate-400 font-mono">
+                <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-bold">
+                  {evt.eventName}
+                </span>
+                <span className="text-slate-500">B#{evt.blockNumber} • {evt.timestamp}</span>
+              </div>
+              
+              <div className="text-[8px] text-slate-350 bg-[#040713] p-1.5 rounded space-y-0.5 leading-relaxed font-mono">
+                {Object.entries(evt.args).map(([key, val]) => (
+                  <div key={key} className="flex justify-between truncate">
+                    <span className="text-slate-500 font-semibold">{key}:</span>
+                    <span className="text-slate-350 truncate max-w-[200px]" title={String(val)}>{String(val)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-between items-center text-[8px] text-slate-500 pt-1 border-t border-white/5 font-mono">
+                <span>Tx Hash:</span>
+                <span className="text-slate-450 truncate w-[160px] cursor-pointer hover:text-[#10b981]" title={evt.txHash}>
+                  {evt.txHash.slice(0, 10)}...{evt.txHash.slice(-8)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   const stats = dynamicStats();
@@ -738,7 +1013,17 @@ function MainAppContent() {
                                           rel="noopener noreferrer"
                                           className="mt-2 text-center text-[8px] text-cyan-400 flex items-center justify-center gap-1 hover:underline"
                                         >
-                                          Ver Explorer en Celoscan <ExternalLink size={8} />
+                                          <>
+                                            <div className="bg-[#030612]/70 border border-white/5 rounded-2xl p-2.5 my-2.5 flex flex-col items-center">
+                                              <PaymentQRCode
+                                                id={msg.widget.payload.id || "inv-11"}
+                                                amount={msg.widget.payload.amount || 100000}
+                                                client={msg.widget.payload.client || "Cliente"}
+                                                description={msg.widget.payload.desc || "LucasBot Cobro"}
+                                              />
+                                            </div>
+                                            <span className="flex items-center justify-center gap-1">Ver Explorer en Celoscan <ExternalLink size={8} /></span>
+                                          </>
                                         </a>
                                       </div>
                                     )}
@@ -1049,6 +1334,11 @@ function MainAppContent() {
                           );
                         })}
                     </div>
+                  </div>
+                  
+                  {/* Real-time Solidity Smart Contract Events Panel */}
+                  <div className="mt-4">
+                    {renderSolidityEventLedger()}
                   </div>
                 </div>
               )}
@@ -1364,7 +1654,17 @@ function MainAppContent() {
                                               rel="noopener noreferrer"
                                               className="mt-3.5 text-center text-[10px] text-cyan-400 flex items-center justify-center gap-1 hover:underline"
                                             >
-                                              Ver Explorer en Celoscan <ExternalLink size={10} />
+                                              <>
+                                                <div className="bg-[#030612]/70 border border-white/5 rounded-2xl p-3 my-3 flex flex-col items-center">
+                                                  <PaymentQRCode
+                                                    id={msg.widget.payload.id || "inv-11"}
+                                                    amount={msg.widget.payload.amount || 100000}
+                                                    client={msg.widget.payload.client || "Cliente"}
+                                                    description={msg.widget.payload.desc || "LucasBot Cobro"}
+                                                  />
+                                                </div>
+                                                <span className="flex items-center justify-center gap-1.5">Ver Explorer en Celoscan <ExternalLink size={10} /></span>
+                                              </>
                                             </a>
                                           </div>
                                         )}
@@ -1678,6 +1978,9 @@ function MainAppContent() {
                           LucasBot no almacena llaves ni tiene acceso a tu capital. Las transacciones se firman 100% on-chain de forma descentralizada.
                         </p>
                       </div>
+
+                      {/* Real-time Solidity Smart Contract Events Panel */}
+                      {renderSolidityEventLedger()}
                     </section>
 
                     <section className="col-span-12 lg:col-span-7 flex flex-col bg-slate-900/40 backdrop-blur-sm border border-white/5 rounded-[32px] p-5 overflow-hidden min-h-0">
@@ -1735,7 +2038,7 @@ function MainAppContent() {
                                       </span>
                                     ) : (
                                       <button
-                                        onClick={() => payInvoiceSimulated(item.id)}
+                                        onClick={() => handleTablePay(item)}
                                         disabled={isProcessingAction}
                                         className="py-1 px-3 text-[10px] text-amber-450 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded cursor-pointer font-bold select-none transition"
                                       >
@@ -1855,6 +2158,149 @@ function MainAppContent() {
         )}
 
       </div>
+
+      {/* SYSTEM-WIDE OVERLAY: SOLIDITY CRYPTOGRAPHIC MULTI-TOKEN FIELD AUTHORIZATION MODAL (EIP-712) */}
+      {signatureRequest && (
+        <div className="fixed inset-0 bg-[#020617]/90 backdrop-blur-md flex items-center justify-center p-4 z-[9999]">
+          <div className="max-w-md w-full bg-[#0b1329] border-2 border-emerald-500/25 rounded-[28px] shadow-2xl p-6 relative overflow-hidden flex flex-col space-y-4">
+            
+            {/* Header branding */}
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 bg-emerald-500/10 rounded-xl flex items-center justify-center border border-emerald-500/20">
+                  <ShieldCheck className="text-emerald-400" size={20} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold font-mono text-emerald-400 uppercase tracking-wider">Firma de Solicitud</h3>
+                  <p className="text-[10px] text-slate-400">EIP-712 Secure Message</p>
+                </div>
+              </div>
+              <div className="bg-emerald-500/10 px-2.5 py-1 rounded-full text-[9px] text-[#10b981] font-mono font-bold uppercase border border-emerald-500/15">
+                MiniPay Injector
+              </div>
+            </div>
+
+            {/* Contract payload metadata */}
+            <div className="bg-[#060b18] border border-white/5 rounded-2xl p-4 space-y-3">
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-slate-400">Origen Aplicación</span>
+                <span className="text-slate-200 font-medium font-mono">LucasBot v2.1</span>
+              </div>
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-slate-400">Dirección Delegada</span>
+                <span className="text-slate-200 font-mono select-all text-[9.5px]">
+                  {wallet.address ? `${wallet.address.slice(0, 8)}...${wallet.address.slice(-6)}` : "0x7cD2...C3a1"}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-slate-400">Función Smart Contract</span>
+                <span className="text-amber-400 font-mono font-medium">
+                  {signatureRequest.type === "create" ? "emitInvoice(bytes32,uint256)" : "settleInvoice(bytes32,uint256)"}
+                </span>
+              </div>
+
+              <div className="border-t border-white/5 pt-3 space-y-1.5">
+                <span className="text-[9px] text-slate-500 uppercase tracking-widest font-mono block">Detalles del Mensaje</span>
+                <div className="bg-[#090e1f] p-2.5 rounded-lg border border-white/5 space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Concepto:</span>
+                    <span className="text-slate-200 font-medium truncate max-w-[200px]">{signatureRequest.desc}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">
+                      {signatureRequest.type === "create" ? "Cliente:" : "Beneficiario:"}
+                    </span>
+                    <span className="text-slate-250 font-medium truncate max-w-[200px]">{signatureRequest.client}</span>
+                  </div>
+                  <div className="flex justify-between text-sm pt-1 border-t border-white/5">
+                    <span className="text-slate-400 font-semibold">Monto:</span>
+                    <span className="text-[#10b981] font-bold font-mono">
+                      ${signatureRequest.amount.toLocaleString("es-CO")} COPm
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Fee Currency Interactive selector (Abstracción de Gas de Celo) */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-slate-400 font-mono uppercase">Moneda para Tarifas (Gas)</span>
+                <span className="text-[9px] font-mono font-bold text-amber-500">Celo Native Fee</span>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-2">
+                {(["COPm", "cUSD", "CELO"] as const).map((curr) => (
+                  <button
+                    key={curr}
+                    type="button"
+                    onClick={() => {
+                      playChime("click");
+                      wallet.changeFeeCurrency(curr);
+                    }}
+                    className={`py-1.5 px-2 rounded-xl text-xs font-semibold border flex flex-col items-center justify-center transition cursor-pointer select-none ${
+                      wallet.feeCurrency === curr
+                        ? "bg-emerald-500/10 border-emerald-500 text-emerald-400"
+                        : "bg-slate-900/50 border-white/5 hover:bg-slate-850 text-slate-400"
+                    }`}
+                  >
+                    <span className="text-[11px] font-mono">{curr}</span>
+                    <span className="text-[8px] opacity-75 font-mono">
+                      {curr === "COPm" ? "Gasless" : curr === "cUSD" ? "Min." : "Normal"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="text-[9px] font-mono text-slate-400 bg-[#060b18] px-2.5 py-1.5 rounded-lg flex justify-between">
+                <span>Costo Gas Estimado:</span>
+                <span className="text-emerald-400 font-bold font-mono">
+                  {wallet.feeCurrency === "COPm" && "0.00 COPm (Free Gas!)"}
+                  {wallet.feeCurrency === "cUSD" && "0.0001 cUSD (~0.4 COPm)"}
+                  {wallet.feeCurrency === "CELO" && "0.005 CELO (~3.2 COPm)"}
+                </span>
+              </div>
+            </div>
+
+            {/* Cryptographic Hash simulation detail */}
+            <div className="bg-[#050914] border border-white/5 p-2 rounded-lg text-[8.5 border-white/5">
+              <span className="text-[8px] font-mono text-slate-500 block uppercase">EIP-712 Typed Signature Hash</span>
+              <span className="text-[8.5px] font-mono text-slate-350 select-all truncate block">
+                0x6f91d8ceab83f3e9a7e914c3e5aef123d41cbfb9b1c7dc41c2c3116bc37ef{signatureRequest.amount}ee0741
+              </span>
+            </div>
+
+            {/* Biometric Interactive Action Button to confirm */}
+            <div className="pt-2 flex flex-col space-y-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  playChime("success");
+                  const simulatedHash = "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+                  signatureRequest.onSuccess(simulatedHash);
+                  setSignatureRequest(null);
+                }}
+                className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-900 rounded-2xl font-bold text-xs select-none cursor-pointer transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/10"
+              >
+                <Fingerprint size={16} />
+                <span>Autorizar Firma (Huella o PIN)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  playChime("click");
+                  setSignatureRequest(null);
+                }}
+                className="w-full py-2 border border-white/10 hover:bg-white/5 text-slate-400 hover:text-slate-200 rounded-xl font-bold text-[11px] transition cursor-pointer"
+              >
+                Rechazar Firma
+              </button>
+            </div>
+            
+          </div>
+        </div>
+      )}
     </div>
   );
 }
