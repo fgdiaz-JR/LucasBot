@@ -1,0 +1,6 @@
+{
+  "name": "LucasBot",
+  "description": "Asistente financiero y pasarela de cobros conversacional 100% on-chain en Celo, optimizado para MiniPay y navegadores web estándar.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
