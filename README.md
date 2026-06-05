@@ -1,4 +1,4 @@
-# LucasBot
+# LucasBot (FacturaBot)
 
 **LucasBot** is an advanced 100% on-chain conversational financial assistant and billing gateway running on the **Celo Network**, tailored specifically for hispanophone markets (starting with Colombia).
 

@@ -810,17 +810,28 @@ function MainAppContent() {
                 {/* Wallet Balance Tag inside Mobile header */}
                 <div className="flex items-center gap-1">
                   {wallet.isConnected ? (
-                    <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-2.5 py-1 text-right">
+                    <button
+                      onClick={() => {
+                        playChime("click");
+                        if (confirm("¿Deseas desconectar tu billetera?")) {
+                          wallet.disconnectWallet();
+                        }
+                      }}
+                      className="flex items-center gap-2 bg-white/5 hover:bg-red-500/10 border border-white/10 rounded-xl px-2.5 py-1 text-right transition cursor-pointer select-none"
+                    >
                       <div className="text-[9px] leading-tight font-mono">
                         <div className="text-emerald-400 font-bold">{wallet.address?.substring(0, 5)}...{wallet.address?.substring(wallet.address.length - 3)}</div>
-                        <div className="text-slate-400 text-[8px]">{wallet.celoBalance > 0 ? `${wallet.celoBalance} CELO` : "Gas 0"}</div>
+                        <div className="text-slate-400 text-[8px]" style={{ fontSize: "7px" }}>{wallet.celoBalance > 0 ? `${wallet.celoBalance} CELO` : "Gas 0"}</div>
                       </div>
                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
-                    </div>
+                    </button>
                   ) : (
                     <button
-                      onClick={() => wallet.connectWallet("Standard")}
-                      className="bg-emerald-500 hover:bg-emerald-400 text-[#020617] font-bold px-2.5 py-1 rounded-lg text-[10px] transition duration-200 cursor-pointer flex items-center gap-1"
+                      onClick={() => {
+                        playChime("click");
+                        wallet.connectWallet("Standard");
+                      }}
+                      className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold px-2.5 py-1 rounded-lg text-[10px] transition duration-200 cursor-pointer flex items-center gap-1 shadow shadow-emerald-500/10"
                     >
                       <Wallet size={10} />
                       Conectar
@@ -1479,22 +1490,51 @@ function MainAppContent() {
 
                 {/* Status Indicator Bar */}
                 <div className="flex items-center gap-4">
-                  <div className="bg-white/5 backdrop-blur-md border border-white/10 px-4 py-2.5 rounded-2xl flex items-center gap-3">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
-                    <div className="text-left">
-                      <div className="text-[8px] text-slate-500 uppercase font-mono tracking-wider">Dirección Wallet</div>
-                      <div className="text-[11px] font-mono font-bold text-slate-200">
-                        {wallet.address || "0x7cD2...C3a1"}
+                  {wallet.isConnected ? (
+                    <div className="bg-white/5 backdrop-blur-md border border-white/10 px-4 py-2.5 rounded-2xl flex items-center gap-3 relative group">
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+                      <div className="text-left">
+                        <div className="text-[8px] text-slate-500 uppercase font-mono tracking-wider flex justify-between items-center gap-2">
+                          <span>Dirección Wallet</span>
+                          <span className="text-emerald-400 font-bold bg-emerald-400/10 px-1 py-[1px] rounded text-[7px]" style={{ fontSize: "7px" }}>Conectado</span>
+                        </div>
+                        <div className="text-[11px] font-mono font-bold text-slate-200">
+                          {wallet.address ? `${wallet.address.slice(0, 8)}...${wallet.address.slice(-6)}` : "0x7cD2...C3a1"}
+                        </div>
                       </div>
-                    </div>
-                    
-                    <div className="border-l border-white/10 pl-3">
-                      <div className="text-[8px] text-slate-500 uppercase font-mono tracking-wider">Saldo Celo</div>
-                      <div className="text-[11px] font-bold text-emerald-400 font-mono">
-                        ${wallet.cUSDBalance.toLocaleString("es-CO")} COPm
+                      
+                      <div className="border-l border-white/10 pl-3">
+                        <div className="text-[8px] text-slate-500 uppercase font-mono tracking-wider">Saldo Celo</div>
+                        <div className="text-[11px] font-bold text-emerald-400 font-mono">
+                          ${wallet.cUSDBalance.toLocaleString("es-CO")} COPm
+                        </div>
                       </div>
+
+                      <button
+                        onClick={() => {
+                          playChime("click");
+                          wallet.disconnectWallet();
+                        }}
+                        className="ml-2 text-[9px] text-red-400 hover:text-red-300 border border-red-500/15 hover:bg-red-500/10 bg-red-500/5 px-2 py-1 rounded-lg transition duration-200 cursor-pointer hidden group-hover:block"
+                        title="Desconectar Billetera"
+                      >
+                        Desconectar
+                      </button>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          playChime("click");
+                          wallet.connectWallet("Standard");
+                        }}
+                        className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold rounded-2xl text-xs transition duration-200 cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-500/15"
+                      >
+                        <Wallet size={13} />
+                        Conectar MetaMask / Valora
+                      </button>
+                    </div>
+                  )}
                 </div>
               </header>
 

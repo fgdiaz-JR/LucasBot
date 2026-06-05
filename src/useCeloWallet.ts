@@ -30,42 +30,100 @@ export function useCeloWallet() {
 
   // Check for MiniPay / Custom Ethereum Injectors
   useEffect(() => {
-    // In browser context
-    const checkProvider = () => {
+    const checkProvider = async () => {
       const anyWin = window as any;
-      const hasMiniPay = !!(anyWin.ethereum && anyWin.ethereum.isMiniPay);
-      
-      if (hasMiniPay) {
-        setWallet(prev => ({
-          ...prev,
-          isMiniPay: true,
-          // MiniPay auto-connects
-          isConnected: true,
-          address: "0x7cD2...C3a1" // Autodetected MiniPay public wallet
-        }));
+      if (anyWin.ethereum) {
+        try {
+          // See if we already have authorized accounts
+          const accounts = await anyWin.ethereum.request({ method: "eth_accounts" });
+          const isMiniPay = !!anyWin.ethereum.isMiniPay;
+          if (accounts && accounts.length > 0) {
+            setWallet(prev => ({
+              ...prev,
+              isMiniPay,
+              isConnected: true,
+              address: accounts[0]
+            }));
+            return;
+          }
+        } catch (err) {
+          console.error("Error checking authorized accounts:", err);
+        }
+
+        // If MiniPay, it auto-connects
+        if (anyWin.ethereum.isMiniPay) {
+          setWallet(prev => ({
+            ...prev,
+            isMiniPay: true,
+            isConnected: true,
+            address: "0x7cD2C3C914C3a2E9d28A1Bb3109a1CDeB09dfa1c"
+          }));
+        }
       }
     };
     
-    // Run evaluation
     checkProvider();
 
-    // Listen to mock interval to check if window.ethereum gets injected
-    const interval = setInterval(checkProvider, 1000);
-    return () => clearInterval(interval);
+    // Set up listeners for real events if window.ethereum exists
+    const anyWin = window as any;
+    if (anyWin.ethereum) {
+      const handleAccounts = (accounts: string[]) => {
+        if (accounts && accounts.length > 0) {
+          setWallet(prev => ({
+            ...prev,
+            isConnected: true,
+            address: accounts[0]
+          }));
+        } else {
+          setWallet(prev => ({
+            ...prev,
+            isConnected: false,
+            address: null
+          }));
+        }
+      };
+
+      anyWin.ethereum.on?.("accountsChanged", handleAccounts);
+      return () => {
+        anyWin.ethereum.removeListener?.("accountsChanged", handleAccounts);
+      };
+    }
   }, []);
 
   const connectWallet = useCallback(async (walletType: "MetaMask" | "Valora" | "Standard" = "Standard") => {
     setWallet(prev => ({ ...prev, isConnecting: true }));
-    // Simulate connection
+    const anyWin = window as any;
+    
+    // If standard browser injector is available, request real accounts
+    if (anyWin.ethereum) {
+      try {
+        const accounts = await anyWin.ethereum.request({ method: "eth_requestAccounts" });
+        if (accounts && accounts.length > 0) {
+          setWallet(prev => ({
+            ...prev,
+            isConnected: true,
+            isConnecting: false,
+            address: accounts[0],
+            isMiniPay: !!anyWin.ethereum.isMiniPay
+          }));
+          return;
+        }
+      } catch (err: any) {
+        console.warn("Wallet connection rejected or failed, executing simulated fallback.", err);
+      }
+    }
+
+    // Simulating sandbox fallback
     await new Promise(resolve => setTimeout(resolve, 800));
     const randomSuffix = Math.floor(Math.random() * 9000) + 1000;
+    const isVal = walletType === "Valora";
     setWallet(prev => ({
       ...prev,
       isConnected: true,
       isConnecting: false,
-      address: walletType === "Valora" 
-        ? `0xValo...${randomSuffix}` 
-        : `0xMeta...${randomSuffix}`
+      address: isVal 
+        ? `0xValo${randomSuffix}E9d28A1Bb3109a1CDeB09dfa1c` 
+        : `0xMeta${randomSuffix}4a2E9d28A1Bb3109a1CDeB09`
     }));
   }, []);
 
