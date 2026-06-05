@@ -90,14 +90,24 @@ export function useCeloWallet() {
     }
   }, []);
 
-  const connectWallet = useCallback(async (walletType: "MetaMask" | "Valora" | "Standard" = "Standard") => {
+  const connectWallet = useCallback(async (walletType: "MetaMask" | "Valora" | "Standard" | "Simulated" = "Standard") => {
     setWallet(prev => ({ ...prev, isConnecting: true }));
     const anyWin = window as any;
     
-    // If standard browser injector is available, request real accounts
-    if (anyWin.ethereum) {
+    // If standard browser injector is available and user wants to try real connection
+    if (walletType !== "Simulated" && anyWin.ethereum) {
       try {
-        const accounts = await anyWin.ethereum.request({ method: "eth_requestAccounts" });
+        // Safe timeout promise to prevent indefinite hanging inside iframe sandbox
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout de conexión: Posible restricción de iframe sandbox")), 2000)
+        );
+
+        // Race the actual request against the timeout
+        const accounts = await Promise.race([
+          anyWin.ethereum.request({ method: "eth_requestAccounts" }),
+          timeoutPromise
+        ]) as string[];
+
         if (accounts && accounts.length > 0) {
           setWallet(prev => ({
             ...prev,
@@ -109,7 +119,7 @@ export function useCeloWallet() {
           return;
         }
       } catch (err: any) {
-        console.warn("Wallet connection rejected or failed, executing simulated fallback.", err);
+        console.warn("La conexión de billetera falló o excedió el tiempo por Sandbox del iframe. Usando fallback simulado.", err);
       }
     }
 

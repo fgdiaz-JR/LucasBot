@@ -78,11 +78,12 @@ function MainAppContent() {
   // Manual transaction forms states
   const [showManualCreate, setShowManualCreate] = useState(false);
   const [showManualPay, setShowManualPay] = useState(false);
+  const [showConnectModal, setShowConnectModal] = useState(false);
 
   // BIP-712 Cryptographic signature request state
   const [signatureRequest, setSignatureRequest] = useState<{
     id?: string;
-    type: "create" | "pay";
+    type: "create" | "pay" | "lock_escrow" | "release_escrow";
     client: string;
     amount: number;
     desc: string;
@@ -552,6 +553,108 @@ function MainAppContent() {
     });
   };
 
+  const handleLockEscrow = (item: Invoice) => {
+    // Check Gas status (celoBalance)
+    if (wallet.celoBalance <= 0 && wallet.feeCurrency === "CELO") {
+      playChime("error");
+      speakText("Error: No tienes saldo de gas CELO");
+      window.open("https://link.minipay.xyz/add_cash", "_blank");
+      return;
+    }
+
+    setSignatureRequest({
+      id: item.id,
+      type: "lock_escrow",
+      client: item.clientName,
+      amount: item.amountCOPm,
+      desc: item.description,
+      onSuccess: async (txHash) => {
+        setIsProcessingAction(true);
+        
+        let gasSpent = 0.005;
+        let feeString = `${gasSpent} CELO`;
+        if (wallet.feeCurrency === "COPm") {
+          gasSpent = 0;
+          feeString = "0.00 COPm (Gasless)";
+        } else if (wallet.feeCurrency === "cUSD") {
+          gasSpent = 0.0001;
+          feeString = "0.0001 cUSD (~0.4 COPm)";
+        }
+
+        await payInvoiceSimulated(item.id, "lock");
+
+        // Add solidity contract event for escrow creation/lock
+        const newBlock = 18451203 + blockchainEvents.length + 1;
+        setBlockchainEvents(prev => [
+          {
+            id: `evt-${Date.now()}`,
+            blockNumber: newBlock,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            eventName: "InvoiceCreated",
+            txHash,
+            args: { id: item.id, depositor: wallet.address || "0x7cD2...C3a1", amount: `${item.amountCOPm.toLocaleString()} COPm`, status: "Locked in Escrow Contract", fee: feeString }
+          },
+          ...prev
+        ]);
+
+        setIsProcessingAction(false);
+        playChime("success");
+        speakText("Excelente. El pago ha sido retenido de forma segura en garantía Celo");
+      }
+    });
+  };
+
+  const handleReleaseEscrow = (item: Invoice) => {
+    // Check Gas status (celoBalance)
+    if (wallet.celoBalance <= 0 && wallet.feeCurrency === "CELO") {
+      playChime("error");
+      speakText("Error: No tienes saldo de gas CELO");
+      window.open("https://link.minipay.xyz/add_cash", "_blank");
+      return;
+    }
+
+    setSignatureRequest({
+      id: item.id,
+      type: "release_escrow",
+      client: item.clientName,
+      amount: item.amountCOPm,
+      desc: item.description,
+      onSuccess: async (txHash) => {
+        setIsProcessingAction(true);
+        
+        let gasSpent = 0.003;
+        let feeString = `${gasSpent} CELO`;
+        if (wallet.feeCurrency === "COPm") {
+          gasSpent = 0;
+          feeString = "0.00 COPm (Gasless)";
+        } else if (wallet.feeCurrency === "cUSD") {
+          gasSpent = 0.0001;
+          feeString = "0.0001 cUSD (~0.4 COPm)";
+        }
+
+        await payInvoiceSimulated(item.id, "release");
+
+        // Add solidity contract event for escrow locked release
+        const newBlock = 18451203 + blockchainEvents.length + 1;
+        setBlockchainEvents(prev => [
+          {
+            id: `evt-${Date.now()}`,
+            blockNumber: newBlock,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            eventName: "InvoicePaid",
+            txHash,
+            args: { id: item.id, releasedTo: item.clientName, amount: `${item.amountCOPm.toLocaleString()} COPm`, status: "Distributed / Released", fee: feeString }
+          },
+          ...prev
+        ]);
+
+        setIsProcessingAction(false);
+        playChime("success");
+        speakText("Garantía liberada exitosamente. Los fondos se han transferido al destinatario.");
+      }
+    });
+  };
+
   // Financial analytics derived dynamically for Bento grid and charts
   const dynamicStats = () => {
     const totalCount = invoices.length;
@@ -829,7 +932,7 @@ function MainAppContent() {
                     <button
                       onClick={() => {
                         playChime("click");
-                        wallet.connectWallet("Standard");
+                        setShowConnectModal(true);
                       }}
                       className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold px-2.5 py-1 rounded-lg text-[10px] transition duration-200 cursor-pointer flex items-center gap-1 shadow shadow-emerald-500/10"
                     >
@@ -1287,18 +1390,18 @@ function MainAppContent() {
                     <div className="flex items-center justify-between">
                       <h3 className="font-display font-medium text-[11px] text-white">Transacciones Recientes</h3>
                       <div className="flex gap-1">
-                        {(["All", InvoiceStatus.PENDIENTE, InvoiceStatus.PAGADO] as const).map((opt) => (
+                        {(["All", InvoiceStatus.PENDIENTE, InvoiceStatus.RETENIDO, InvoiceStatus.PAGADO] as const).map((opt) => (
                           <button
                             key={opt}
                             onClick={() => setFilter(opt)}
-                            className={`text-[8px] font-mono px-1.5 py-0.5 rounded cursor-pointer ${filter === opt ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-white/5 text-slate-500"}`}
+                            className={`text-[8px] font-mono px-1.5 py-0.5 rounded cursor-pointer transition ${filter === opt ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-white/5 text-slate-500"}`}
                           >
-                            {opt === "All" ? "Todos" : opt === InvoiceStatus.PENDIENTE ? "Pendientes" : "Pagados"}
+                            {opt === "All" ? "Todos" : opt === InvoiceStatus.PENDIENTE ? "Pendientes" : opt === InvoiceStatus.RETENIDO ? "Garantía (🔒)" : "Cobradas"}
                           </button>
                         ))}
                       </div>
                     </div>
-
+ 
                     <div className="space-y-1.5 max-h-[220px] overflow-y-auto">
                       {invoices
                         .filter((item) => filter === "All" || item.status === filter)
@@ -1330,14 +1433,36 @@ function MainAppContent() {
                                 <div className="mt-1">
                                   {item.status === InvoiceStatus.PAGADO ? (
                                     <span className="text-[7px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1 py-0.2 rounded font-bold">Cobrado</span>
+                                  ) : item.status === InvoiceStatus.RETENIDO ? (
+                                    <div className="flex flex-col items-end gap-1">
+                                      <span className="text-[7.5px] text-amber-300 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded font-bold uppercase font-mono">Retenido 🔒</span>
+                                      <button
+                                        onClick={() => handleReleaseEscrow(item)}
+                                        disabled={isProcessingAction}
+                                        className="text-[7.5px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/25 px-1.5 py-0.5 border border-emerald-500/20 rounded cursor-pointer transition font-mono font-bold"
+                                      >
+                                        Liberar
+                                      </button>
+                                    </div>
                                   ) : (
-                                    <button
-                                      onClick={() => handlePayment(item, "manual")}
-                                      disabled={isProcessingAction}
-                                      className="text-[7.5px] text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/25 px-1.5 py-0.5 border border-amber-500/20 rounded cursor-pointer transition font-mono font-bold"
-                                    >
-                                      Saldar
-                                    </button>
+                                    <div className="flex gap-1 justify-end">
+                                      <button
+                                        onClick={() => handlePayment(item, "manual")}
+                                        disabled={isProcessingAction}
+                                        className="text-[7px] text-amber-400 hover:text-white bg-amber-500/10 hover:bg-amber-500/20 px-1 py-0.5 border border-amber-500/20 rounded cursor-pointer transition font-mono font-bold"
+                                        title="Pagar Directo"
+                                      >
+                                        Pagar
+                                      </button>
+                                      <button
+                                        onClick={() => handleLockEscrow(item)}
+                                        disabled={isProcessingAction}
+                                        className="text-[7px] text-cyan-400 hover:text-white bg-cyan-500/10 hover:bg-cyan-500/20 px-1 py-0.5 border border-cyan-500/20 rounded cursor-pointer transition font-mono font-bold"
+                                        title="Retener en Escrow de Celo"
+                                      >
+                                        Escrow
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
                               </div>
@@ -1526,7 +1651,7 @@ function MainAppContent() {
                       <button
                         onClick={() => {
                           playChime("click");
-                          wallet.connectWallet("Standard");
+                          setShowConnectModal(true);
                         }}
                         className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold rounded-2xl text-xs transition duration-200 cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-500/15"
                       >
@@ -2027,13 +2152,13 @@ function MainAppContent() {
                       <div className="flex justify-between items-center mb-4 shrink-0">
                         <h2 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Historial Completo de Cobros</h2>
                         <div className="flex gap-2">
-                          {(["All", InvoiceStatus.PENDIENTE, InvoiceStatus.PAGADO, InvoiceStatus.VENCIDO] as const).map((opt) => (
+                          {(["All", InvoiceStatus.PENDIENTE, InvoiceStatus.RETENIDO, InvoiceStatus.PAGADO, InvoiceStatus.VENCIDO] as const).map((opt) => (
                             <button
                               key={opt}
                               onClick={() => setFilter(opt)}
-                              className={`text-[10px] font-mono px-2.5 py-1 rounded-sm cursor-pointer ${filter === opt ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold" : "bg-white/5 text-slate-500"}`}
+                              className={`text-[10px] font-mono px-2.5 py-1 rounded-sm cursor-pointer transition ${filter === opt ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold" : "bg-white/5 text-slate-500"}`}
                             >
-                              {opt === "All" ? "Todos" : opt === InvoiceStatus.PENDIENTE ? "Pendientes" : "Pagados"}
+                              {opt === "All" ? "Todos" : opt === InvoiceStatus.PENDIENTE ? "Pendientes" : opt === InvoiceStatus.RETENIDO ? "En Fideicomiso (🔒)" : opt === InvoiceStatus.PAGADO ? "Completados" : "Vencidos"}
                             </button>
                           ))}
                         </div>
@@ -2071,19 +2196,41 @@ function MainAppContent() {
                                   <div className={`font-bold text-sm font-mono ${isExpense ? "text-red-400" : "text-emerald-400"}`}>
                                     {isExpense ? "-" : "+"}${item.amountCOPm.toLocaleString("es-CO")} <span className="text-[9px] font-mono text-slate-500">COPm</span>
                                   </div>
-                                  <div className="mt-1.5 flex justify-end">
+                                  <div className="mt-1.5 flex justify-end gap-1.5">
                                     {item.status === InvoiceStatus.PAGADO ? (
                                       <span className="text-[10px] text-emerald-450 bg-emerald-500/10 border border-emerald-500/20 rounded-full font-bold">
                                         {item.status}
                                       </span>
+                                    ) : item.status === InvoiceStatus.RETENIDO ? (
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full font-bold uppercase font-mono">
+                                          Retenido 🔒
+                                        </span>
+                                        <button
+                                          onClick={() => handleReleaseEscrow(item)}
+                                          disabled={isProcessingAction}
+                                          className="py-1 px-3 text-[10px] text-emerald-400 hover:text-emerald-350 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded cursor-pointer font-bold transition flex items-center gap-1"
+                                        >
+                                          {isProcessingAction ? <RefreshCw className="animate-spin text-emerald-500" size={10} /> : "Liberar Garantía ⚡"}
+                                        </button>
+                                      </div>
                                     ) : (
-                                      <button
-                                        onClick={() => handleTablePay(item)}
-                                        disabled={isProcessingAction}
-                                        className="py-1 px-3 text-[10px] text-amber-450 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded cursor-pointer font-bold select-none transition"
-                                      >
-                                        {isProcessingAction ? <RefreshCw className="animate-spin text-amber-500" size={10} /> : "Pagar on-chain"}
-                                      </button>
+                                      <div className="flex gap-1.5">
+                                        <button
+                                          onClick={() => handleTablePay(item)}
+                                          disabled={isProcessingAction}
+                                          className="py-1 px-3 text-[10px] text-amber-450 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded cursor-pointer font-bold select-none transition flex items-center gap-1"
+                                        >
+                                          {isProcessingAction ? <RefreshCw className="animate-spin text-amber-500" size={10} /> : "Pagar DIRECTO"}
+                                        </button>
+                                        <button
+                                          onClick={() => handleLockEscrow(item)}
+                                          disabled={isProcessingAction}
+                                          className="py-1 px-3 text-[10px] text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 rounded cursor-pointer font-bold transition"
+                                        >
+                                          Retener ESCROW
+                                        </button>
+                                      </div>
                                     )}
                                   </div>
                                 </div>
@@ -2235,7 +2382,10 @@ function MainAppContent() {
               <div className="flex justify-between items-center text-[10px]">
                 <span className="text-slate-400">Función Smart Contract</span>
                 <span className="text-amber-400 font-mono font-medium">
-                  {signatureRequest.type === "create" ? "emitInvoice(bytes32,uint256)" : "settleInvoice(bytes32,uint256)"}
+                  {signatureRequest.type === "create" && "emitInvoice(bytes32,uint256)"}
+                  {signatureRequest.type === "pay" && "settleInvoice(bytes32,uint256)"}
+                  {signatureRequest.type === "lock_escrow" && "lockEscrowFunds(bytes32,uint256)"}
+                  {signatureRequest.type === "release_escrow" && "releaseEscrowFunds(bytes32)"}
                 </span>
               </div>
 
@@ -2248,12 +2398,17 @@ function MainAppContent() {
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-slate-400">
-                      {signatureRequest.type === "create" ? "Cliente:" : "Beneficiario:"}
+                      {signatureRequest.type === "create" && "Cliente:"}
+                      {signatureRequest.type === "pay" && "Beneficiario:"}
+                      {signatureRequest.type === "lock_escrow" && "Proveedor (Garantía):"}
+                      {signatureRequest.type === "release_escrow" && "Destinatario (Liberado):"}
                     </span>
                     <span className="text-slate-250 font-medium truncate max-w-[200px]">{signatureRequest.client}</span>
                   </div>
                   <div className="flex justify-between text-sm pt-1 border-t border-white/5">
-                    <span className="text-slate-400 font-semibold">Monto:</span>
+                    <span className="text-slate-400 font-semibold">
+                      {signatureRequest.type === "release_escrow" ? "Monto a Liberar:" : "Monto de Depósito:"}
+                    </span>
                     <span className="text-[#10b981] font-bold font-mono">
                       ${signatureRequest.amount.toLocaleString("es-CO")} COPm
                     </span>
@@ -2336,6 +2491,137 @@ function MainAppContent() {
               >
                 Rechazar Firma
               </button>
+            </div>
+            
+          </div>
+        </div>
+      )}
+
+      {/* WALLET CONNECTION SELECTION DIALOG */}
+      {showConnectModal && (
+        <div className="fixed inset-0 bg-[#020617]/90 backdrop-blur-md flex items-center justify-center p-4 z-[9999]">
+          <div className="max-w-md w-full bg-[#0b1329] border border-white/10 rounded-[28px] shadow-2xl p-6 relative overflow-hidden flex flex-col space-y-4">
+            
+            {/* Design header */}
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 bg-[#10b981]/10 rounded-xl flex items-center justify-center border border-emerald-500/25">
+                  <Wallet className="text-emerald-400" size={18} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold font-mono text-emerald-400 uppercase tracking-wider">Conectar Billetera</h3>
+                  <p className="text-[10px] text-slate-400">Selecciona tu método de conexión</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  playChime("click");
+                  setShowConnectModal(false);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Custom info note about sandbox iframe restriction so user is aware! */}
+            <div className="bg-amber-500/5 border border-amber-500/15 rounded-2xl p-3 flex gap-2.5 items-start text-[10px] text-amber-300 leading-normal">
+              <Info size={13} className="mt-0.5 shrink-0 text-amber-400" />
+              <div>
+                <span className="font-bold block text-amber-400">¿Por qué no abre mi billetera?</span> 
+                Este entorno de desarrollo se ejecuta dentro de un <strong className="text-amber-200">iframe seguro</strong>. Muchos navegadores bloquean las ventanas emergentes de extensiones (como MetaMask o Valora) en esta vista por seguridad.
+                <span className="block mt-1.5 text-slate-300">Si al dar clic no ocurre nada, usa la <strong className="text-emerald-400 font-semibold font-mono">"Billetera de Pruebas"</strong>. Te conectará al instante con saldo virtual completo para probar el asistente.</span>
+              </div>
+            </div>
+
+            {/* If wallet is connecting, show loading state */}
+            {wallet.isConnecting ? (
+              <div className="py-6 flex flex-col items-center justify-center space-y-3">
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full border-2 border-emerald-500/10 border-t-emerald-400 animate-spin"></div>
+                  <Wallet size={16} className="text-emerald-400 absolute inset-0 m-auto animate-pulse" />
+                </div>
+                <div className="text-center space-y-1">
+                  <p className="text-xs font-semibold text-slate-200">Esperando respuesta de extensión...</p>
+                  <p className="text-[10px] text-slate-400 max-w-xs mx-auto">
+                    Si MetaMask o tu wallet no responden dentro de la vista previa, puedes omitir la espera presionando el botón de abajo.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    playChime("success");
+                    await wallet.connectWallet("Simulated");
+                    setShowConnectModal(false);
+                  }}
+                  className="mt-3 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 text-emerald-400 text-[11px] font-bold rounded-xl transition cursor-pointer"
+                >
+                  Usar Billetera de Pruebas Ahora ⚡
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                
+                {/* 1. Simulated Developer Wallet (Recommended inside preview container) */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    playChime("success");
+                    await wallet.connectWallet("Simulated");
+                    setShowConnectModal(false);
+                  }}
+                  className="w-full text-left p-3.5 rounded-2xl bg-[#10b981]/5 border border-emerald-500/30 hover:border-emerald-400 hover:bg-[#10b981]/10 transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="space-y-1 pr-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-bold text-slate-100 group-hover:text-emerald-300">Billetera de Pruebas (Simuladora)</span>
+                      <span className="text-[7px] bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-1 py-0.5 rounded font-bold uppercase font-mono tracking-wider">Altamente Recomendada</span>
+                    </div>
+                    <p className="text-[9.5px] text-slate-400 leading-normal">Evita limitaciones del iframe. Conéctate con saldo ficticio de muestra en COPm y GAS de Celo sin salir del navegador.</p>
+                  </div>
+                  <CheckCircle size={16} className="text-emerald-400 opacity-60 group-hover:opacity-100 shrink-0" />
+                </button>
+
+                {/* 2. MetaMask (Real Web3) */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    playChime("click");
+                    wallet.connectWallet("MetaMask");
+                  }}
+                  className="w-full text-left p-3.5 rounded-2xl bg-slate-900/40 border border-white/5 hover:border-emerald-500/20 hover:bg-slate-900/80 transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="space-y-1 pr-2">
+                    <span className="text-xs font-bold text-slate-200 group-hover:text-white block">Metamask / Brave Browser Wallet</span>
+                    <p className="text-[9.5px] text-slate-400 leading-normal">Solicita conexión web3 a tu extensión nativa (útil si abres la app en pestaña independiente).</p>
+                  </div>
+                  <Coins size={16} className="text-amber-500 opacity-60 group-hover:opacity-100 shrink-0" />
+                </button>
+
+                {/* 3. Valora Wallet */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    playChime("click");
+                    wallet.connectWallet("Valora");
+                  }}
+                  className="w-full text-left p-3.5 rounded-2xl bg-slate-900/40 border border-white/5 hover:border-emerald-500/20 hover:bg-slate-900/80 transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="space-y-1 pr-2">
+                    <span className="text-xs font-bold text-slate-200 group-hover:text-white block">Esquema Valora (Móvil / Link Celo)</span>
+                    <p className="text-[9.5px] text-slate-400 leading-normal">Modela la conexión a la billetera oficial de la red Celo mediante deep linking de prueba.</p>
+                  </div>
+                  <Smartphone size={16} className="text-cyan-400 opacity-60 group-hover:opacity-100 shrink-0" />
+                </button>
+
+              </div>
+            )}
+
+            {/* Help guidelines bottom banner */}
+            <div className="text-[8.5px] text-slate-500 font-mono text-center pt-2 border-t border-white/5 uppercase tracking-wider">
+              LucasBot v2.1 • Celo Web3 Protocol
             </div>
             
           </div>

@@ -17,7 +17,7 @@ interface FacturaContextType {
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   addMessage: (sender: "user" | "bot", text: string, widget?: ChatMessage["widget"]) => void;
   createInvoiceFromAI: (client: string, amountCOPm: number, description: string) => Invoice;
-  payInvoiceSimulated: (id: string) => Promise<boolean>;
+  payInvoiceSimulated: (id: string, actionType?: "pay" | "lock" | "release") => Promise<boolean>;
   isProcessingAction: boolean;
   setIsProcessingAction: (v: boolean) => void;
 }
@@ -42,6 +42,32 @@ export function FacturaProvider({ children }: { children: ReactNode }) {
       status: InvoiceStatus.PENDIENTE,
       creatorAddress: "0x7cD2...C3a1",
       type: "ingreso"
+    },
+    {
+      id: "inv-gar-01",
+      clientName: "Pedro Ruiz (Solidity Dev)",
+      amountCOPm: 800000,
+      amountUSD: 200.0,
+      description: "Contrato Inteligente de Garantías Escrow Celo (Retenido - Esperando entrega de código)",
+      issueDate: "2026-06-01",
+      dueDate: "2026-06-15",
+      status: InvoiceStatus.RETENIDO,
+      creatorAddress: "0x7cD2...C3a1",
+      txHash: "0xa1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890",
+      type: "egreso"
+    },
+    {
+      id: "inv-gar-02",
+      clientName: "Ana Gómez (Diseñadora UX)",
+      amountCOPm: 350000,
+      amountUSD: 87.5,
+      description: "Diseño de wireframes móviles LucasBot (Retenido - Esperando aprobación de cliente)",
+      issueDate: "2026-06-03",
+      dueDate: "2026-06-18",
+      status: InvoiceStatus.RETENIDO,
+      creatorAddress: "0x7cD2...C3a1",
+      txHash: "0xb1c2d3e4f5a67890b1c2d3e4f5a67890b1c2d3e4f5a67890b1c2d3e4f5a67890",
+      type: "egreso"
     },
     {
       id: "inv-7512",
@@ -141,7 +167,7 @@ export function FacturaProvider({ children }: { children: ReactNode }) {
     return newInv;
   }, []);
 
-  const payInvoiceSimulated = useCallback(async (id: string): Promise<boolean> => {
+  const payInvoiceSimulated = useCallback(async (id: string, actionType: "pay" | "lock" | "release" = "pay"): Promise<boolean> => {
     // Return promise, simulate blockchain delay
     setIsProcessingAction(true);
     await new Promise(resolve => setTimeout(resolve, 1800));
@@ -149,17 +175,38 @@ export function FacturaProvider({ children }: { children: ReactNode }) {
     let success = false;
     setInvoices(prev => {
       return prev.map(inv => {
-        if (inv.id === id && inv.status !== InvoiceStatus.PAGADO) {
-          success = true;
-          // Deduct from wallet if paying, and decrease gas CELO
-          wallet.deductBalance(inv.amountCOPm);
-          wallet.useGas(0.005); // CELO gas fee
-          
-          return {
-            ...inv,
-            status: InvoiceStatus.PAGADO,
-            txHash: "0x" + Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join("")
-          };
+        if (inv.id === id) {
+          if (actionType === "lock" && inv.status === InvoiceStatus.PENDIENTE) {
+            success = true;
+            // Deduct balance from wallet representing depositing funds into Celo Smart Contract
+            wallet.deductBalance(inv.amountCOPm);
+            wallet.useGas(0.005); // CELO gas fee for deployment/lock
+            return {
+              ...inv,
+              status: InvoiceStatus.RETENIDO,
+              txHash: "0x" + Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join("")
+            };
+          }
+          if (actionType === "release" && inv.status === InvoiceStatus.RETENIDO) {
+            success = true;
+            // Funds are sent from trust contract to receiver, so we do NOT deduct payee's balance again!
+            wallet.useGas(0.003); // CELO gas fee for release authorization
+            return {
+              ...inv,
+              status: InvoiceStatus.PAGADO,
+              txHash: "0x" + Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join("")
+            };
+          }
+          if (actionType === "pay" && inv.status === InvoiceStatus.PENDIENTE) {
+            success = true;
+            wallet.deductBalance(inv.amountCOPm);
+            wallet.useGas(0.005);
+            return {
+              ...inv,
+              status: InvoiceStatus.PAGADO,
+              txHash: "0x" + Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join("")
+            };
+          }
         }
         return inv;
       });
