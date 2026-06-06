@@ -1065,8 +1065,8 @@ function MainAppContent() {
                                       <div>
                                         <div className="space-y-1 bg-black/40 p-2 rounded-xl border border-[#10b981]/20 font-mono text-[9px]">
                                           <div className="flex justify-between">
-                                            <span className="text-slate-500">Origen:</span>
-                                            <span className="text-slate-200">Carlos G. (Freelance)</span>
+                                            <span className="text-slate-500">Destinatario:</span>
+                                            <span className="text-slate-200">{msg.widget.payload.client || "Destinatario"}</span>
                                           </div>
                                           <div className="flex justify-between">
                                             <span className="text-slate-500">Monto COPm:</span>
@@ -1096,7 +1096,7 @@ function MainAppContent() {
                                               className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-[#020617] font-bold rounded-lg text-[9px] flex items-center justify-center gap-1 cursor-pointer shadow-lg shadow-emerald-500/20"
                                             >
                                               {isProcessingAction ? <RefreshCw className="animate-spin" size={10} /> : <Wallet size={10} />}
-                                              Saldar en Un Toque
+                                              {msg.widget.payload.isEscrow ? "Retener Fondos en Escrow 🔒" : "Saldar en Un Toque ⚡"}
                                             </button>
                                           )}
                                         </div>
@@ -1759,12 +1759,24 @@ function MainAppContent() {
                                           <div>
                                             <div className="space-y-1.5 bg-[#020617]/40 p-3 rounded-xl border border-[#10b981]/25 font-mono text-[11px]">
                                               <div className="flex justify-between text-slate-400">
-                                                <span>Cobrador:</span>
-                                                <span className="text-slate-200">Carlos G. (Freelance)</span>
+                                                <span>Destinatario:</span>
+                                                <span className="text-slate-200">{msg.widget.payload.client || "Destinatario"}</span>
                                               </div>
-                                              <div className="flex justify-between text-slate-400">
+                                              {msg.widget.payload.desc && (
+                                                <div className="flex justify-between text-slate-400">
+                                                  <span>Concepto:</span>
+                                                  <span className="text-slate-250 truncate max-w-[150px]">{msg.widget.payload.desc}</span>
+                                                </div>
+                                              )}
+                                              <div className="flex justify-between text-slate-400 font-bold">
                                                 <span>Monto COPm:</span>
                                                 <span className="text-emerald-400 font-bold text-sm">${msg.widget.payload.amount?.toLocaleString("es-CO")}</span>
+                                              </div>
+                                              <div className="flex justify-between text-slate-400 text-[10.5px]">
+                                                <span>Modalidad:</span>
+                                                <span className={msg.widget.payload.isEscrow ? "text-amber-400 font-bold" : "text-cyan-400 font-bold"}>
+                                                  {msg.widget.payload.isEscrow ? "Garantía Escrow 🔒" : "Pago Directo ⚡"}
+                                                </span>
                                               </div>
                                             </div>
 
@@ -1788,7 +1800,7 @@ function MainAppContent() {
                                                   className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
                                                 >
                                                   {isProcessingAction ? <RefreshCw className="animate-spin" size={12} /> : <Wallet size={12} />}
-                                                  Saldar en Un Toque
+                                                  {msg.widget.payload.isEscrow ? "Retener Fondos en Escrow 🔒" : "Saldar en Un Toque ⚡"}
                                                 </button>
                                               )}
                                             </div>
