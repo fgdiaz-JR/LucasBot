@@ -882,7 +882,7 @@ function MainAppContent() {
       <div 
         className={`w-full transition-all duration-500 relative flex ${
           isDeviceView 
-            ? "max-w-[390px] h-[780px] md:h-[730px] md:mt-11 border-8 border-slate-800 rounded-[2.8rem] shadow-2xl flex-col bg-[#0b1329] overflow-hidden z-10" 
+            ? "w-full h-screen flex-col bg-[#0b1329] overflow-hidden z-10" 
             : "max-w-[1240px] h-[92vh] min-h-[720px] bg-[#020617]/40 backdrop-blur-xl border border-white/10 rounded-[32px] shadow-3xl flex-row overflow-hidden z-10 mt-6"
         }`}
       >
