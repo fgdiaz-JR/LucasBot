@@ -869,7 +869,7 @@ function MainAppContent() {
   const stats = dynamicStats();
 
   return (
-    <div className={`min-h-screen transition-all duration-500 overflow-x-hidden flex items-center justify-center p-0 md:p-4 font-sans relative ${performanceMode ? "bg-[#020617]" : "bg-[#020617] text-slate-100"}`}>
+    <div className={`h-screen w-screen transition-all duration-500 overflow-hidden flex items-center justify-center p-0 font-sans relative ${performanceMode ? "bg-[#020617]" : "bg-[#020617] text-slate-100"}`}>
       {/* Ambient Glows from the Immersive UI design mockup */}
       {!performanceMode && (
         <>
@@ -880,10 +880,10 @@ function MainAppContent() {
 
       {/* Main Container: dynamically scales between MiniPay Frame and Full Widescreen Dashboard */}
       <div 
-        className={`w-full transition-all duration-500 relative flex ${
+        className={`w-full h-full relative flex ${
           isDeviceView 
-            ? "w-full h-screen flex-col bg-[#0b1329] overflow-hidden z-10" 
-            : "max-w-[1240px] h-[92vh] min-h-[720px] bg-[#020617]/40 backdrop-blur-xl border border-white/10 rounded-[32px] shadow-3xl flex-row overflow-hidden z-10 mt-6"
+            ? "w-full h-full flex-col bg-[#0b1329] overflow-hidden z-10" 
+            : "w-full h-full bg-[#020617]/40 backdrop-blur-xl flex-row overflow-hidden z-10"
         }`}
       >
         
